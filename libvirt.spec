@@ -205,6 +205,16 @@
     %define with_modular_daemons 1
 %endif
 
+# Prefer nftables for future OS releases but keep using iptables
+# for existing ones
+%if 0%{?rhel} >= 10 || 0%{?fedora} >= 41
+    %define prefer_nftables 1
+    %define firewall_backend_priority nftables,iptables
+%else
+    %define prefer_nftables 0
+    %define firewall_backend_priority iptables,nftables
+%endif
+
 # Force QEMU to run as non-root
 %define qemu_user  qemu
 %define qemu_group  qemu
@@ -275,14 +285,14 @@
     %{nil}
 
 # To prevent rpmdev-bumpspec breakage
-%global baserelease 1
+%global baserelease 2
 
 # Hyperscale release
 %global hsrel .1
 
 Summary: Library providing a simple virtualization API
 Name: libvirt
-Version: 10.1.0
+Version: 10.4.0
 Release: %{baserelease}%{?hsrel}%{?dist}
 License: GPL-2.0-or-later AND LGPL-2.1-only AND LGPL-2.1-or-later AND OFL-1.1
 URL: https://libvirt.org/
@@ -291,6 +301,8 @@ URL: https://libvirt.org/
     %define mainturl stable_updates/
 %endif
 Source: https://download.libvirt.org/%{?mainturl}libvirt-%{version}.tar.xz
+Patch2: 0001-rpc-avoid-leak-of-GSource-in-use-for-interrupting-ma.patch
+Patch3: 0001-interface-fix-udev-reference-leak-with-invalid-flags.patch
 
 Requires: libvirt-daemon = %{version}-%{release}
 Requires: libvirt-daemon-config-network = %{version}-%{release}
@@ -342,7 +354,7 @@ BuildRequires: gcc
     %if %{with_libxl}
 BuildRequires: xen-devel
     %endif
-BuildRequires: glib2-devel >= 2.56
+BuildRequires: glib2-devel >= 2.58
 BuildRequires: libxml2-devel
 BuildRequires: readline-devel
 BuildRequires: pkgconfig(bash-completion) >= 2.0
@@ -362,8 +374,6 @@ BuildRequires: sanlock-devel >= 2.4
 BuildRequires: libpcap-devel >= 1.5.0
 BuildRequires: libnl3-devel
 BuildRequires: libselinux-devel
-BuildRequires: iptables
-BuildRequires: ebtables
 # For modprobe
 BuildRequires: kmod
 BuildRequires: cyrus-sasl-devel
@@ -600,7 +610,11 @@ Summary: Network driver plugin for the libvirtd daemon
 Requires: libvirt-daemon-common = %{version}-%{release}
 Requires: libvirt-libs = %{version}-%{release}
 Requires: dnsmasq >= 2.41
+    %if %{prefer_nftables}
+Requires: nftables
+    %else
 Requires: iptables
+    %endif
 
 %description daemon-driver-network
 The network driver plugin for the libvirtd daemon, providing
@@ -821,8 +835,13 @@ Requires: gzip
 Requires: bzip2
 Requires: lzop
 Requires: xz
+Requires: zstd
 Requires: systemd-container
+        %if 0%{?facebook}
+Recommends: swtpm-tools
+        %else
 Requires: swtpm-tools
+        %endif
         %if %{with_numad}
 Requires: numad
         %endif
@@ -908,6 +927,7 @@ Requires: libvirt-daemon-driver-nodedev = %{version}-%{release}
 Requires: libvirt-daemon-driver-nwfilter = %{version}-%{release}
 Requires: libvirt-daemon-driver-secret = %{version}-%{release}
 Requires: libvirt-daemon-driver-storage = %{version}-%{release}
+Requires: libvirt-ssh-proxy = %{version}-%{release}
 Requires: qemu
 
 %description daemon-qemu
@@ -936,6 +956,7 @@ Requires: libvirt-daemon-driver-nodedev = %{version}-%{release}
 Requires: libvirt-daemon-driver-nwfilter = %{version}-%{release}
 Requires: libvirt-daemon-driver-secret = %{version}-%{release}
 Requires: libvirt-daemon-driver-storage = %{version}-%{release}
+Requires: libvirt-ssh-proxy = %{version}-%{release}
 
 # relax requirement for qemu-kvm for fb builds
 %if 0%{?facebook}
@@ -1110,6 +1131,13 @@ Requires: libvirt-daemon-driver-network = %{version}-%{release}
 %description nss
 Libvirt plugin for NSS for translating domain names into IP addresses.
 %endif
+
+%package ssh-proxy
+Summary: Libvirt SSH proxy
+Requires: libvirt-libs = %{version}-%{release}
+
+%description ssh-proxy
+Allows SSH into domains via VSOCK without need for network.
 
 %if %{with_mingw32}
 %package -n mingw32-libvirt
@@ -1383,9 +1411,11 @@ export SOURCE_DATE_EPOCH=$(stat --printf='%Y' %{_specdir}/libvirt.spec)
            -Dtls_priority=%{tls_priority} \
            -Dsysctl_config=enabled \
            %{?arg_userfaultfd_sysctl} \
+           -Dssh_proxy=enabled \
            %{?enable_werror} \
            -Dexpensive_tests=enabled \
            -Dinit_script=systemd \
+           -Dfirewall_backend_priority=%{firewall_backend_priority} \
            -Ddocs=enabled \
            -Dtests=enabled \
            -Drpath=disabled \
@@ -1467,6 +1497,7 @@ export SOURCE_DATE_EPOCH=$(stat --printf='%Y' %{_specdir}/libvirt.spec)
   -Dstorage_zfs=disabled \
   -Dsysctl_config=disabled \
   -Duserfaultfd_sysctl=disabled \
+  -Dssh_proxy=disabled \
   -Dtests=disabled \
   -Dudev=disabled \
   -Dwireshark_dissector=disabled \
@@ -1577,7 +1608,8 @@ rm -rf $RPM_BUILD_ROOT%{mingw64_libexecdir}/libvirt-guests.sh
 %if %{with_native}
 # Building on slow archs, like emulated s390x in Fedora copr, requires
 # raising the test timeout
-VIR_TEST_DEBUG=1 %meson_test --no-suite syntax-check --timeout-multiplier 10
+VIR_TEST_DEBUG=1
+%meson_test --no-suite syntax-check --timeout-multiplier 10
 %endif
 
 %define libvirt_rpmstatedir %{_localstatedir}/lib/rpm-state/libvirt
@@ -2120,6 +2152,9 @@ exit 0
 %config(noreplace) %{_sysconfdir}/libvirt/virtnetworkd.conf
 %{_datadir}/augeas/lenses/virtnetworkd.aug
 %{_datadir}/augeas/lenses/tests/test_virtnetworkd.aug
+%config(noreplace) %{_sysconfdir}/libvirt/network.conf
+%{_datadir}/augeas/lenses/libvirtd_network.aug
+%{_datadir}/augeas/lenses/tests/test_libvirtd_network.aug
 %{_unitdir}/virtnetworkd.service
 %{_unitdir}/virtnetworkd.socket
 %{_unitdir}/virtnetworkd-ro.socket
@@ -2437,6 +2472,10 @@ exit 0
 %{_libdir}/libnss_libvirt.so.2
 %{_libdir}/libnss_libvirt_guest.so.2
 
+%files ssh-proxy
+%config(noreplace) %{_sysconfdir}/ssh/ssh_config.d/30-libvirt-ssh-proxy.conf
+%{_libexecdir}/libvirt-ssh-proxy
+
     %if %{with_lxc}
 %files login-shell
 %attr(4750, root, virtlogin) %{_bindir}/virt-login-shell
@@ -2600,6 +2639,28 @@ exit 0
 
 
 %changelog
+* Wed Jun 14 2024 Roberto Campesato <render@metalabs.org> - 10.4.0-2.1
+- Update to version 10.4.0
+- Relax dependency on swtpm-tools for facebook builds
+
+* Wed Jun  5 2024 Daniel P. Berrangé <berrange@redhat.com> - 10.4.0-2
+- Fix leak of GSource handle
+- Fix leak of udev reference (rhbz #2266017)
+
+* Wed Jun  5 2024 Daniel P. Berrangé <berrange@redhat.com> - 10.4.0-1
+- Update to version 10.4.0
+- Change virtual network backend from iptables to nftables
+- Introduce SSH VSOCK proxy
+
+* Thu May  2 2024 Daniel P. Berrangé <berrange@redhat.com> - 10.3.0-1
+- Update to version 10.3.0
+
+* Sat Apr 06 2024 Cole Robinson <crobinso@redhat.com> - 10.2.0-2
+- Rebuild for new libiscsi
+
+* Fri Apr 05 2024 Cole Robinson <crobinso@redhat.com> - 10.2.0-1
+- Update to version 10.2.0
+
 * Wed Mar 27 2024 Roberto Campesato <render@metalabs.org> - 10.1.0-1.1
 - Update to version 10.1.0
 - Relax dependency on qemu-kvm for facebook builds

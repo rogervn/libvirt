@@ -1,0 +1,41 @@
+From 3499354e12a1c1832bf4030693a64e03ceb79d05 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Daniel=20P=2E=20Berrang=C3=A9?= <berrange@redhat.com>
+Date: Wed, 5 Jun 2024 11:16:21 +0100
+Subject: [PATCH] interface: fix udev reference leak with invalid flags
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The udevInterfaceGetXMLDesc method takes a reference on the udev
+driver as its first action. If the virCheckFlags() condition
+fails, however, this reference is never released.
+
+Reviewed-by: Peter Krempa <pkrempa@redhat.com>
+Signed-off-by: Daniel P. Berrangé <berrange@redhat.com>
+---
+ src/interface/interface_backend_udev.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/interface/interface_backend_udev.c b/src/interface/interface_backend_udev.c
+index fdf11a8318..e1a50389c9 100644
+--- a/src/interface/interface_backend_udev.c
++++ b/src/interface/interface_backend_udev.c
+@@ -1027,12 +1027,14 @@ static char *
+ udevInterfaceGetXMLDesc(virInterfacePtr ifinfo,
+                         unsigned int flags)
+ {
+-    struct udev *udev = udev_ref(driver->udev);
++    struct udev *udev = NULL;
+     g_autoptr(virInterfaceDef) ifacedef = NULL;
+     char *xmlstr = NULL;
+ 
+     virCheckFlags(VIR_INTERFACE_XML_INACTIVE, NULL);
+ 
++    udev = udev_ref(driver->udev);
++
+     /* Recursively build up the interface XML based on the requested
+      * interface name
+      */
+-- 
+2.45.1
+
