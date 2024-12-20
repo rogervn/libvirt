@@ -6,7 +6,7 @@
 %define min_rhel 8
 %define min_fedora 37
 
-%define arches_qemu_kvm         %{ix86} x86_64 %{power64} %{arm} aarch64 s390x
+%define arches_qemu_kvm         %{ix86} x86_64 %{power64} %{arm} aarch64 s390x riscv64
 %if 0%{?rhel}
     %if 0%{?rhel} > 8
         %define arches_qemu_kvm     x86_64 aarch64 s390x
@@ -19,7 +19,7 @@
 %define arches_x86              %{ix86} x86_64
 
 %define arches_systemtap_64bit  %{arches_64bit}
-%define arches_dmidecode        %{arches_x86}
+%define arches_dmidecode        %{arches_x86} aarch64 riscv64
 %define arches_xen              %{arches_x86} aarch64
 %if 0%{?fedora}
     %define arches_xen          x86_64 aarch64
@@ -285,14 +285,14 @@
     %{nil}
 
 # To prevent rpmdev-bumpspec breakage
-%global baserelease 2
+%global baserelease 1
 
 # Hyperscale release
 %global hsrel .1
 
 Summary: Library providing a simple virtualization API
 Name: libvirt
-Version: 10.4.0
+Version: 10.10.0
 Release: %{baserelease}%{?hsrel}%{?dist}
 License: GPL-2.0-or-later AND LGPL-2.1-only AND LGPL-2.1-or-later AND OFL-1.1
 URL: https://libvirt.org/
@@ -301,8 +301,6 @@ URL: https://libvirt.org/
     %define mainturl stable_updates/
 %endif
 Source: https://download.libvirt.org/%{?mainturl}libvirt-%{version}.tar.xz
-Patch2: 0001-rpc-avoid-leak-of-GSource-in-use-for-interrupting-ma.patch
-Patch3: 0001-interface-fix-udev-reference-leak-with-invalid-flags.patch
 
 Requires: libvirt-daemon = %{version}-%{release}
 Requires: libvirt-daemon-config-network = %{version}-%{release}
@@ -367,7 +365,7 @@ BuildRequires: libblkid-devel >= 2.17
 BuildRequires: augeas
 BuildRequires: systemd-devel >= 185
 BuildRequires: libpciaccess-devel >= 0.10.9
-BuildRequires: yajl-devel
+BuildRequires: json-c-devel
     %if %{with_sanlock}
 BuildRequires: sanlock-devel >= 2.4
     %endif
@@ -431,12 +429,10 @@ BuildRequires: libcurl-devel
 BuildRequires: libwsman-devel >= 2.6.3
     %endif
 BuildRequires: audit-libs-devel
-# we need /usr/sbin/dtrace
 BuildRequires: systemtap-sdt-devel
+BuildRequires: /usr/bin/dtrace
 # For mount/umount in FS driver
 BuildRequires: util-linux
-# For showmount in FS driver (netfs discovery)
-BuildRequires: nfs-utils
     %if %{with_numad}
 BuildRequires: numad
     %endif
@@ -675,7 +671,7 @@ an implementation of the secret key APIs.
 Summary: Storage driver plugin including base backends for the libvirtd daemon
 Requires: libvirt-daemon-common = %{version}-%{release}
 Requires: libvirt-libs = %{version}-%{release}
-Requires: nfs-utils
+Recommends: nfs-utils
 # For mkfs
 Requires: util-linux
 # For storage wiping with different algorithms
@@ -1011,7 +1007,6 @@ Requires: libvirt-daemon-driver-libxl = %{version}-%{release}
 Requires: libvirt-daemon-driver-interface = %{version}-%{release}
 Requires: libvirt-daemon-driver-network = %{version}-%{release}
 Requires: libvirt-daemon-driver-nodedev = %{version}-%{release}
-Requires: libvirt-daemon-driver-nwfilter = %{version}-%{release}
 Requires: libvirt-daemon-driver-secret = %{version}-%{release}
 Requires: libvirt-daemon-driver-storage = %{version}-%{release}
 Requires: xen
@@ -1048,8 +1043,6 @@ capabilities of VirtualBox
 %package client
 Summary: Client side utilities of the libvirt library
 Requires: libvirt-libs = %{version}-%{release}
-# Needed by virt-pki-validate script.
-Requires: gnutls-utils
 
 # Ensure smooth upgrades
 Obsoletes: libvirt-bash-completion < 7.3.0
@@ -1071,8 +1064,6 @@ with some QEMU specific features of libvirt.
 
 %package libs
 Summary: Client side libraries
-# So remote clients can access libvirt over SSH tunnel
-Requires: cyrus-sasl
 # Needed by default sasl.conf - no onerous extra deps, since
 # 100's of other things on a system already pull in krb5-libs
 Requires: cyrus-sasl-gssapi
@@ -1345,6 +1336,8 @@ export SOURCE_DATE_EPOCH=$(stat --printf='%Y' %{_specdir}/libvirt.spec)
 %meson \
            -Drunstatedir=%{_rundir} \
            -Dinitconfdir=%{_sysconfdir}/sysconfig \
+           -Dunitdir=%{_unitdir} \
+           -Dsysusersdir=%{_sysusersdir} \
            %{?arg_qemu} \
            %{?arg_openvz} \
            %{?arg_lxc} \
@@ -1387,7 +1380,7 @@ export SOURCE_DATE_EPOCH=$(stat --printf='%Y' %{_specdir}/libvirt.spec)
            -Dapparmor_profiles=disabled \
            -Dsecdriver_apparmor=disabled \
            -Dudev=enabled \
-           -Dyajl=enabled \
+           -Djson_c=enabled \
            %{?arg_sanlock} \
            -Dlibpcap=enabled \
            %{?arg_nbdkit} \
@@ -1459,6 +1452,7 @@ export SOURCE_DATE_EPOCH=$(stat --printf='%Y' %{_specdir}/libvirt.spec)
   -Dfuse=disabled \
   -Dglusterfs=disabled \
   -Dhost_validate=disabled \
+  -Djson_c=disabled \
   -Dlibiscsi=disabled \
   -Dnbdkit=disabled \
   -Dnbdkit_config_default=disabled \
@@ -1501,8 +1495,8 @@ export SOURCE_DATE_EPOCH=$(stat --printf='%Y' %{_specdir}/libvirt.spec)
   -Dtests=disabled \
   -Dudev=disabled \
   -Dwireshark_dissector=disabled \
-  -Dyajl=disabled
-    %mingw_ninja
+  %{?enable_werror}
+%mingw_ninja
 %endif
 
 %install
@@ -1608,7 +1602,7 @@ rm -rf $RPM_BUILD_ROOT%{mingw64_libexecdir}/libvirt-guests.sh
 %if %{with_native}
 # Building on slow archs, like emulated s390x in Fedora copr, requires
 # raising the test timeout
-VIR_TEST_DEBUG=1
+export VIR_TEST_DEBUG=1
 %meson_test --no-suite syntax-check --timeout-multiplier 10
 %endif
 
@@ -2047,7 +2041,9 @@ exit 0
 %config(noreplace) %{_sysconfdir}/libvirt/libvirtd.conf
 %config(noreplace) %{_prefix}/lib/sysctl.d/60-libvirtd.conf
 %config(noreplace) %{_sysconfdir}/logrotate.d/libvirtd
+%dir %{_datadir}/augeas/lenses
 %{_datadir}/augeas/lenses/libvirtd.aug
+%dir %{_datadir}/augeas/lenses/tests
 %{_datadir}/augeas/lenses/tests/test_libvirtd.aug
 %attr(0755, root, root) %{_sbindir}/libvirtd
 %{_mandir}/man8/libvirtd.8*
@@ -2058,7 +2054,7 @@ exit 0
 %config(noreplace) %{_sysconfdir}/sasl2/libvirt.conf
 %dir %{_datadir}/libvirt/
 %ghost %dir %{_rundir}/libvirt/
-%ghost %dir %{_rundir}/libvirt/common/
+%ghost %dir %attr(0700, root, root) %{_rundir}/libvirt/common/
 %dir %attr(0755, root, root) %{_localstatedir}/lib/libvirt/
 %dir %attr(0711, root, root) %{_localstatedir}/lib/libvirt/images/
 %dir %attr(0711, root, root) %{_localstatedir}/lib/libvirt/filesystems/
@@ -2144,7 +2140,7 @@ exit 0
 %{_unitdir}/virtinterfaced-ro.socket
 %{_unitdir}/virtinterfaced-admin.socket
 %attr(0755, root, root) %{_sbindir}/virtinterfaced
-%ghost %dir %{_rundir}/libvirt/interface/
+%ghost %dir %attr(0700, root, root) %{_rundir}/libvirt/interface/
 %{_libdir}/libvirt/connection-driver/libvirt_driver_interface.so
 %{_mandir}/man8/virtinterfaced.8*
 
@@ -2186,7 +2182,7 @@ exit 0
 %{_unitdir}/virtnodedevd-ro.socket
 %{_unitdir}/virtnodedevd-admin.socket
 %attr(0755, root, root) %{_sbindir}/virtnodedevd
-%ghost %dir %{_rundir}/libvirt/nodedev/
+%ghost %dir %attr(0700, root, root) %{_rundir}/libvirt/nodedev/
 %{_libdir}/libvirt/connection-driver/libvirt_driver_nodedev.so
 %{_mandir}/man8/virtnodedevd.8*
 
@@ -2201,8 +2197,8 @@ exit 0
 %attr(0755, root, root) %{_sbindir}/virtnwfilterd
 %dir %attr(0700, root, root) %{_sysconfdir}/libvirt/nwfilter/
 %ghost %dir %{_rundir}/libvirt/network/
-%ghost %dir %{_rundir}/libvirt/nwfilter-binding/
-%ghost %dir %{_rundir}/libvirt/nwfilter/
+%ghost %dir %attr(0700, root, root) %{_rundir}/libvirt/nwfilter-binding/
+%ghost %dir %attr(0700, root, root) %{_rundir}/libvirt/nwfilter/
 %{_libdir}/libvirt/connection-driver/libvirt_driver_nwfilter.so
 %{_mandir}/man8/virtnwfilterd.8*
 
@@ -2216,7 +2212,7 @@ exit 0
 %{_unitdir}/virtsecretd-admin.socket
 %attr(0755, root, root) %{_sbindir}/virtsecretd
 %dir %attr(0700, root, root) %{_sysconfdir}/libvirt/secrets/
-%ghost %dir %{_rundir}/libvirt/secrets/
+%ghost %dir %attr(0700, root, root) %{_rundir}/libvirt/secrets/
 %{_libdir}/libvirt/connection-driver/libvirt_driver_secret.so
 %{_mandir}/man8/virtsecretd.8*
 
@@ -2295,11 +2291,11 @@ exit 0
 %config(noreplace) %{_sysconfdir}/libvirt/qemu.conf
 %config(noreplace) %{_sysconfdir}/libvirt/qemu-lockd.conf
 %config(noreplace) %{_sysconfdir}/logrotate.d/libvirtd.qemu
-%ghost %dir %{_rundir}/libvirt/qemu/
-%ghost %dir %{_rundir}/libvirt/qemu/dbus/
-%ghost %dir %{_rundir}/libvirt/qemu/passt/
-%ghost %dir %{_rundir}/libvirt/qemu/slirp/
-%ghost %dir %{_rundir}/libvirt/qemu/swtpm/
+%ghost %dir %attr(0755, %{qemu_user}, %{qemu_group}) %{_rundir}/libvirt/qemu/
+%ghost %dir %attr(0770, %{qemu_user}, %{qemu_group}) %{_rundir}/libvirt/qemu/dbus/
+%ghost %dir %attr(0755, %{qemu_user}, %{qemu_group}) %{_rundir}/libvirt/qemu/passt/
+%ghost %dir %attr(0755, %{qemu_user}, %{qemu_group}) %{_rundir}/libvirt/qemu/slirp/
+%ghost %dir %attr(0770, %{qemu_user}, %{qemu_group}) %{_rundir}/libvirt/qemu/swtpm/
 %dir %attr(0751, %{qemu_user}, %{qemu_group}) %{_localstatedir}/lib/libvirt/qemu/
 %dir %attr(0751, %{qemu_user}, %{qemu_group}) %{_localstatedir}/lib/libvirt/qemu/checkpoint/
 %dir %attr(0751, %{qemu_user}, %{qemu_group}) %{_localstatedir}/lib/libvirt/qemu/dump/
@@ -2453,15 +2449,17 @@ exit 0
 %{_libdir}/libvirt-lxc.so.*
 %{_libdir}/libvirt-admin.so.*
 %dir %{_datadir}/libvirt/
+%{_datadir}/libvirt/test-screenshot.png
 %dir %{_datadir}/libvirt/schemas/
+%{_datadir}/libvirt/schemas/*.rng
+%dir %{_datadir}/systemtap/tapset/
 %{_datadir}/systemtap/tapset/libvirt_probes*.stp
 %{_datadir}/systemtap/tapset/libvirt_functions.stp
     %if %{with_qemu}
 %{_datadir}/systemtap/tapset/libvirt_qemu_probes*.stp
     %endif
-%{_datadir}/libvirt/schemas/*.rng
+%dir %{_datadir}/libvirt/cpu_map
 %{_datadir}/libvirt/cpu_map/*.xml
-%{_datadir}/libvirt/test-screenshot.png
 
     %if %{with_wireshark}
 %files wireshark
@@ -2529,7 +2527,7 @@ exit 0
 %{mingw32_bindir}/virt-admin.exe
 %{mingw32_bindir}/virt-xml-validate
 %{mingw32_bindir}/virt-pki-query-dn.exe
-%{mingw32_bindir}/virt-pki-validate
+%{mingw32_bindir}/virt-pki-validate.exe
 %{mingw32_bindir}/libvirt-lxc-0.dll
 %{mingw32_bindir}/libvirt-qemu-0.dll
 %{mingw32_bindir}/libvirt-admin-0.dll
@@ -2588,7 +2586,7 @@ exit 0
 %{mingw64_bindir}/virt-admin.exe
 %{mingw64_bindir}/virt-xml-validate
 %{mingw64_bindir}/virt-pki-query-dn.exe
-%{mingw64_bindir}/virt-pki-validate
+%{mingw64_bindir}/virt-pki-validate.exe
 %{mingw64_bindir}/libvirt-lxc-0.dll
 %{mingw64_bindir}/libvirt-qemu-0.dll
 %{mingw64_bindir}/libvirt-admin-0.dll
@@ -2639,6 +2637,37 @@ exit 0
 
 
 %changelog
+* Fri Dec 20 2024 Roberto Campesato <render@metalabs.org> - 10.10.0-1.1
+- Merge latest changes from Fedora
+
+* Mon Dec 02 2024 Cole Robinson <crobinso@redhat.com> - 10.10.0-1
+- Update to version 10.10.0
+
+* Fri Nov  1 2024 Daniel P. Berrangé <berrange@redhat.com> - 10.9.0-1
+- Update to version 10.9.0
+
+* Tue Oct 01 2024 Cole Robinson <crobinso@redhat.com> - 10.8.0-1
+- Update to version 10.8.0
+
+* Mon Sep 02 2024 Cole Robinson <crobinso@redhat.com> - 10.7.0-1
+- Update to version 10.7.0
+
+* Tue Aug 27 2024 Cole Robinson <crobinso@redhat.com> - 10.6.0-2
+- Fix `virsh domifaddr --source=arp` on kernel 6.10 (bz #2302245)
+- Add new systemtap-sdt-dtrace to build deps
+
+* Tue Aug 06 2024 Cole Robinson <crobinso@redhat.com> - 10.6.0-1
+- Update to version 10.6.0
+
+* Mon Aug 05 2024 Richard W.M. Jones <rjones@redhat.com> - 10.5.0-3
+- Rebuild for Xen 4.19.0
+
+* Thu Jul 18 2024 Fedora Release Engineering <releng@fedoraproject.org> - 10.5.0-2
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_41_Mass_Rebuild
+
+* Thu Jul  4 2024 Daniel P. Berrangé <berrange@redhat.com> - 10.5.0-1
+- Rebase to 10.5.0 release
+
 * Wed Jun 14 2024 Roberto Campesato <render@metalabs.org> - 10.4.0-2.1
 - Update to version 10.4.0
 - Relax dependency on swtpm-tools for facebook builds
