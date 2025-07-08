@@ -1,0 +1,74 @@
+variables:
+  DO_PUBLISH:
+    description: "Publish result to 'release' or 'testing' CBS repo. If false, don't publish"
+    options: ["false", "testing", "release"]
+    value: "false"
+  DO_TEST:
+    description: "Setting 'false' avoids running tests (useful when testing-farm is unstable). Setting 'allow_failure' runs tests but continue pipeline execution when test fails."
+    options: ["true", "false", "allow_failure"]
+    value: "true"
+
+
+stages:
+  - prepare
+  - setup
+
+.matrix2:
+  parallel:
+    matrix:
+      - REPO: [main, facebook]
+        RELEASE: [9, 10]
+
+# setup for merge request
+mr:
+  stage: setup
+  variables:
+    # REPO, RELEASE come from matrix
+    DO_TEST: "true"
+    DO_PUBLISH: "false"
+    DO_RPM_EXTRA_INFO: "true"
+  trigger:
+    include: .gitlab-child-ci.yml
+    strategy: depend
+    forward:
+      # false is default, but make it clear: no pipelines vars should be forwarded
+      pipeline_variables: false
+  interruptible: true # cancel child pipelines when parent cancelled
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+  extends: .matrix2
+
+# setup for nightly builds
+ni:
+  stage: setup
+  variables:
+    # REPO, RELEASE come from matrix
+    DO_TEST: "allow_failure"
+    DO_PUBLISH: "testing"
+  trigger:
+    include: .gitlab-child-ci.yml
+    strategy: depend
+    forward:
+      # false is default, but make it clear: no pipelines vars should be forwarded
+      pipeline_variables: false
+  interruptible: true # cancel child pipelines when parent cancelled
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'schedule'
+  extends: .matrix2
+
+# setup for a manual release triggered by web
+manual_release:setup:
+  stage: setup
+  variables:
+    # REPO, RELEASE come from matrix
+    # DO_TEST, DO_PUBLISH come from pipeline vars
+    DO_SKIP_ALL: $SKIP_ALL
+  trigger:
+    include: .gitlab-child-ci.yml
+    strategy: depend
+    forward:
+      pipeline_variables: true
+  interruptible: true # cancel child pipelines when parent cancelled
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'web' # run only for pipelines started via gitlab web-interface (usually a release)
+  extends: .matrix2
