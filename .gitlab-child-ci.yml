@@ -1,0 +1,55 @@
+stages:
+  - build
+  - test
+  - publish
+  - tag
+  - unpack
+
+workflow:
+  name: "libvirt-$REPO-$RELEASE"
+  rules:
+    - if: $SKIP_ALL == "true" # this variable may be set in mn:autorelease job
+      when: never
+    - when: always
+
+.fedora:
+  image: quay.io/fedora/fedora:latest
+  before_script:
+    # verify important variables
+    - env
+    - test -n "$CENTOS_CERT"
+    - test -n "$REPO"; echo "$REPO"
+    - test -n "$RELEASE"; echo "$RELEASE"
+    - test -n "$DO_PUBLISH"; echo "$DO_PUBLISH"
+    - test -n "$DO_TEST"; echo "$DO_TEST"
+
+    # install necessary packages
+    - dnf --quiet install -y tar git-core python3 centos-packager mock mock-centos-sig-configs
+
+
+libvirt:build:
+  stage: build
+  extends: .fedora
+  script:
+    - export SCRATCH=$(test "$DO_PUBLISH" == "false" && echo "--scratch" || echo "--no-scratch"); echo $SCRATCH; test -n "$SCRATCH"
+    - export RPM_EXTRA_INFO=$(test "$DO_RPM_EXTRA_INFO" == "true" && echo "--rpm-extra-info=mr${CI_MERGE_REQUEST_IID}"); echo "$RPM_EXTRA_INFO"
+    - python3 ./releng.py --cert "$CENTOS_CERT" build --repo "$REPO" --release "$RELEASE" $SCRATCH $RPM_EXTRA_INFO
+  rules:
+    - when: always
+  interruptible: true
+  artifacts:
+    paths: [ 'artifacts/*-task-id.txt' ]
+
+libvirt:publish:
+  stage: publish
+  extends: .fedora
+  dependencies:
+    - libvirt:build
+  script:
+    - export TASK_ID=$(find . -name "*-task-id.txt" -exec cat {} \; -quit); echo "$TASK_ID"; test -n "$TASK_ID"
+    - python3 ./releng.py --cert "$CENTOS_CERT" publish --repo "$REPO" --release "$RELEASE" --task-id "$TASK_ID" --publish-repo "$DO_PUBLISH"
+  rules:
+    - if: $DO_PUBLISH != 'false'
+  interruptible: true
+  artifacts:
+    paths: [ 'artifacts/*-tag.txt' ]
