@@ -3,15 +3,15 @@
 # This spec file assumes you are building on a Fedora or RHEL version
 # that's still supported by the vendor. It may work on other distros
 # or versions, but no effort will be made to ensure that going forward.
-%define min_rhel 8
-%define min_fedora 37
+%define min_rhel 9
+%define min_fedora 41
 
 %define arches_qemu_kvm         %{ix86} x86_64 %{power64} %{arm} aarch64 s390x riscv64
 %if 0%{?rhel}
-    %if 0%{?rhel} > 8
-        %define arches_qemu_kvm     x86_64 aarch64 s390x
+    %if 0%{?rhel} >= 10
+        %define arches_qemu_kvm     x86_64 aarch64 s390x riscv64
     %else
-        %define arches_qemu_kvm     x86_64 %{power64} aarch64 s390x
+        %define arches_qemu_kvm     x86_64 aarch64 s390x
     %endif
 %endif
 
@@ -29,17 +29,25 @@
 %define arches_zfs              %{arches_x86} %{power64} %{arm}
 %define arches_numactl          %{arches_x86} %{power64} aarch64 s390x
 %define arches_numad            %{arches_x86} %{power64} aarch64
+%define arches_ch               x86_64 aarch64
 
 # The hypervisor drivers that run in libvirtd
 %define with_qemu          0%{!?_without_qemu:1}
 %define with_lxc           0%{!?_without_lxc:1}
 %define with_libxl         0%{!?_without_libxl:1}
 %define with_vbox          0%{!?_without_vbox:1}
+%define with_ch            0%{!?_without_ch:1}
 
 %ifarch %{arches_qemu_kvm}
     %define with_qemu_kvm      %{with_qemu}
 %else
     %define with_qemu_kvm      0
+%endif
+
+%if 0%{?fedora} >= 42
+    %define with_account_add 0
+%else
+    %define with_account_add 1
 %endif
 
 %define with_qemu_tcg      %{with_qemu}
@@ -64,19 +72,12 @@
 
 %define with_storage_gluster 0%{!?_without_storage_gluster:1}
 %if 0%{?rhel}
-    # Glusterfs has been dropped in RHEL-9, and before that
-    # was only enabled on arches where KVM exists
-    %if 0%{?rhel} > 8
-        %define with_storage_gluster 0
-    %else
-        %ifnarch %{arches_qemu_kvm}
-            %define with_storage_gluster 0
-        %endif
-    %endif
+    # Glusterfs has been dropped in RHEL-9.
+    %define with_storage_gluster 0
 %endif
 
-# Fedora has zfs-fuse
-%if 0%{?fedora}
+# Fedora had zfs-fuse until F43
+%if 0%{?fedora} && 0%{?fedora} < 43
     %define with_storage_zfs      0%{!?_without_storage_zfs:1}
 %else
     %define with_storage_zfs      0
@@ -84,7 +85,7 @@
 
 %define with_storage_iscsi_direct 0%{!?_without_storage_iscsi_direct:1}
 # libiscsi has been dropped in RHEL-9
-%if 0%{?rhel} > 8
+%if 0%{?rhel}
     %define with_storage_iscsi_direct 0
 %endif
 
@@ -123,6 +124,9 @@
 %ifnarch %{arches_ceph}
     %define with_storage_rbd 0
 %endif
+%ifnarch %{arches_ch}
+    %define with_ch 0
+%endif
 
 # RHEL doesn't ship many hypervisor drivers
 %if 0%{?rhel}
@@ -132,13 +136,10 @@
     %define with_libxl 0
     %define with_hyperv 0
     %define with_lxc 0
+    %define with_ch 0
 %endif
 
 %define with_firewalld_zone 0%{!?_without_firewalld_zone:1}
-
-%if 0%{?rhel} && 0%{?rhel} < 9
-    %define with_netcf 0%{!?_without_netcf:1}
-%endif
 
 # fuse is used to provide virtualized /proc for LXC
 %if %{with_lxc}
@@ -181,8 +182,7 @@
 # Right now that's not the case anywhere, but things should be fine by the time
 # Fedora 40 is released.
 %if %{with_qemu}
-    # rhel-8 lacks pidfd_open
-    %if 0%{?fedora} || 0%{?rhel} >= 9
+    %if 0%{?fedora} || 0%{?rhel}
         %define with_nbdkit 0%{!?_without_nbdkit:1}
 
         # setting 'with_nbdkit_config_default' must be done only when compiling
@@ -190,7 +190,7 @@
         #
         # TODO: add RHEL 9 once a minor release that contains the necessary SELinux
         #       bits exists (we only support the most recent minor release)
-        %if 0%{?fedora} >= 40
+        %if 0%{?fedora}
             %define with_nbdkit_config_default 0%{!?_without_nbdkit_config_default:1}
         %endif
     %endif
@@ -201,13 +201,13 @@
 %endif
 
 %define with_modular_daemons 0
-%if 0%{?fedora} || 0%{?rhel} >= 9
+%if 0%{?fedora} || 0%{?rhel}
     %define with_modular_daemons 1
 %endif
 
 # Prefer nftables for future OS releases but keep using iptables
 # for existing ones
-%if 0%{?rhel} >= 10 || 0%{?fedora} >= 41
+%if 0%{?rhel} >= 10 || 0%{?fedora}
     %define prefer_nftables 1
     %define firewall_backend_priority nftables,iptables
 %else
@@ -259,7 +259,7 @@
 
 # Fedora and RHEL-9 are new enough to support /dev/userfaultfd, which
 # does not require enabling vm.unprivileged_userfaultfd sysctl.
-%if 0%{?fedora} || 0%{?rhel} >= 9
+%if 0%{?fedora} || 0%{?rhel}
     %define with_userfaultfd_sysctl 0
 %endif
 
@@ -292,7 +292,7 @@
 
 Summary: Library providing a simple virtualization API
 Name: libvirt
-Version: 10.10.0
+Version: 11.4.0
 Release: %{baserelease}%{?hsrel}%{?dist}
 License: GPL-2.0-or-later AND LGPL-2.1-only AND LGPL-2.1-or-later AND OFL-1.1
 URL: https://libvirt.org/
@@ -301,6 +301,9 @@ URL: https://libvirt.org/
     %define mainturl stable_updates/
 %endif
 Source: https://download.libvirt.org/%{?mainturl}libvirt-%{version}.tar.xz
+
+# Fix dumpxml failures after migration (bz 2369243)
+Patch: 0001-qemu-Be-more-forgiving-when-acquiring-QUERY-job-when.patch
 
 Requires: libvirt-daemon = %{version}-%{release}
 Requires: libvirt-daemon-config-network = %{version}-%{release}
@@ -321,6 +324,9 @@ Obsoletes: libvirt-daemon-uml <= 5.0.0
 %if %{with_vbox}
 Requires: libvirt-daemon-driver-vbox = %{version}-%{release}
 %endif
+%if %{with_ch}
+Requires: libvirt-daemon-driver-ch = %{version}-%{release}
+%endif
 Requires: libvirt-daemon-driver-nwfilter = %{version}-%{release}
 Requires: libvirt-daemon-driver-interface = %{version}-%{release}
 Requires: libvirt-daemon-driver-secret = %{version}-%{release}
@@ -335,7 +341,7 @@ Requires: libvirt-libs = %{version}-%{release}
 BuildRequires: python3-docutils
 BuildRequires: meson >= 0.56.0
 BuildRequires: ninja-build
-BuildRequires: git
+BuildRequires: git-core
 BuildRequires: perl-interpreter
 BuildRequires: python3
 BuildRequires: python3-pytest
@@ -352,7 +358,7 @@ BuildRequires: gcc
     %if %{with_libxl}
 BuildRequires: xen-devel
     %endif
-BuildRequires: glib2-devel >= 2.58
+BuildRequires: glib2-devel >= 2.66
 BuildRequires: libxml2-devel
 BuildRequires: readline-devel
 BuildRequires: pkgconfig(bash-completion) >= 2.0
@@ -530,8 +536,10 @@ Requires(posttrans): /usr/bin/systemctl
 Requires(preun): /usr/bin/systemctl
 # libvirtd depends on 'messagebus' service
 Requires: dbus
+    %if %{with_account_add}
 # For uid creation during pre
 Requires(pre): shadow-utils
+    %endif
 # Needed by /usr/libexec/libvirt-guests.sh script.
     %if 0%{?fedora}
 Requires: gettext-runtime
@@ -558,6 +566,7 @@ resources
 %package daemon-plugin-lockd
 Summary: lockd client plugin for virtlockd
 Requires: libvirt-libs = %{version}-%{release}
+Requires: libvirt-daemon-common = %{version}-%{release}
 Requires: libvirt-daemon-lock = %{version}-%{release}
 
 %description daemon-plugin-lockd
@@ -684,6 +693,9 @@ Requires: /usr/bin/qemu-img
 Obsoletes: libvirt-daemon-driver-storage-rbd < 5.2.0
     %endif
 Obsoletes: libvirt-daemon-driver-storage-sheepdog < 8.8.0
+    %if !%{with_storage_zfs}
+Obsoletes: libvirt-daemon-driver-storage-zfs < 11.4.0
+    %endif
 
 %description daemon-driver-storage-core
 The storage driver plugin for the libvirtd daemon, providing
@@ -841,7 +853,7 @@ Requires: swtpm-tools
         %if %{with_numad}
 Requires: numad
         %endif
-        %if 0%{?fedora} || 0%{?rhel} >= 9
+        %if 0%{?fedora} || 0%{?rhel}
 Recommends: passt
 Recommends: passt-selinux
         %endif
@@ -1040,6 +1052,20 @@ Server side daemon and driver required to manage the virtualization
 capabilities of VirtualBox
     %endif
 
+    %if %{with_ch}
+%package daemon-driver-ch
+Summary: Cloud-Hypervisor driver plugin for libvirtd daemon
+Requires: libvirt-daemon-common = %{version}-%{release}
+Requires: libvirt-daemon-log = %{version}-%{release}
+Requires: libvirt-libs = %{version}-%{release}
+
+%description daemon-driver-ch
+The ch driver plugin for the libvirtd daemon, providing
+an implementation of the hypervisor driver APIs by
+Cloud-Hypervisor
+    %endif
+
+
 %package client
 Summary: Client side utilities of the libvirt library
 Requires: libvirt-libs = %{version}-%{release}
@@ -1085,6 +1111,10 @@ Wireshark dissector plugin for better analysis of libvirt RPC traffic.
 %package login-shell
 Summary: Login shell for connecting users to an LXC container
 Requires: libvirt-libs = %{version}-%{release}
+        %if %{with_account_add}
+# For uid creation during pre
+Requires(pre): shadow-utils
+        %endif
 
 %description login-shell
 Provides the set-uid virt-login-shell binary that is used to
@@ -1107,6 +1137,7 @@ Requires: sanlock >= 2.4
 #for virt-sanlock-cleanup require augeas
 Requires: augeas
 Requires: libvirt-libs = %{version}-%{release}
+Requires: libvirt-daemon-common = %{version}-%{release}
 Obsoletes: libvirt-lock-sanlock < 9.1.0
 Provides: libvirt-lock-sanlock = %{version}-%{release}
 
@@ -1202,9 +1233,15 @@ exit 1
 %endif
 
 %if %{with_esx}
-    %define arg_esx -Ddriver_esx=enabled -Dcurl=enabled
+    %define arg_esx -Ddriver_esx=enabled
 %else
-    %define arg_esx -Ddriver_esx=disabled -Dcurl=disabled
+    %define arg_esx -Ddriver_esx=disabled
+%endif
+
+%if %{with_esx} || %{with_ch}
+    %define arg_curl -Dcurl=enabled
+%else
+    %define arg_curl -Dcurl=disabled
 %endif
 
 %if %{with_hyperv}
@@ -1217,6 +1254,12 @@ exit 1
     %define arg_vmware -Ddriver_vmware=enabled
 %else
     %define arg_vmware -Ddriver_vmware=disabled
+%endif
+
+%if %{with_ch}
+    %define arg_ch -Ddriver_ch=enabled
+%else
+    %define arg_ch -Ddriver_ch=disabled
 %endif
 
 %if %{with_storage_rbd}
@@ -1349,11 +1392,12 @@ export SOURCE_DATE_EPOCH=$(stat --printf='%Y' %{_specdir}/libvirt.spec)
            -Ddriver_remote=enabled \
            -Ddriver_test=enabled \
            %{?arg_esx} \
+           %{?arg_curl} \
            %{?arg_hyperv} \
            %{?arg_vmware} \
+           %{?arg_ch} \
            -Ddriver_vz=disabled \
            -Ddriver_bhyve=disabled \
-           -Ddriver_ch=disabled \
            %{?arg_remote_mode} \
            -Ddriver_interface=enabled \
            -Ddriver_network=enabled \
@@ -1433,6 +1477,7 @@ export SOURCE_DATE_EPOCH=$(stat --printf='%Y' %{_specdir}/libvirt.spec)
   -Dblkid=disabled \
   -Dcapng=disabled \
   -Ddriver_bhyve=disabled \
+  -Ddriver_ch=disabled \
   -Ddriver_hyperv=disabled \
   -Ddriver_interface=disabled \
   -Ddriver_libvirtd=disabled \
@@ -1554,6 +1599,10 @@ rm -rf $RPM_BUILD_ROOT%{_sysconfdir}/libvirt/libxl.conf
 rm -rf $RPM_BUILD_ROOT%{_sysconfdir}/logrotate.d/libvirtd.libxl
 rm -f $RPM_BUILD_ROOT%{_datadir}/augeas/lenses/libvirtd_libxl.aug
 rm -f $RPM_BUILD_ROOT%{_datadir}/augeas/lenses/tests/test_libvirtd_libxl.aug
+    %endif
+    %if ! %{with_ch}
+rm -f $RPM_BUILD_ROOT%{_datadir}/augeas/lenses/libvirtd_ch.aug
+rm -f $RPM_BUILD_ROOT%{_datadir}/augeas/lenses/tests/test_libvirtd_ch.aug
     %endif
 
 # Copied into libvirt-docs subpackage eventually
@@ -1765,10 +1814,12 @@ export VIR_TEST_DEBUG=1
 %pre daemon-common
 %libvirt_sysconfig_pre libvirt-guests
 %libvirt_systemd_oneshot_pre libvirt-guests
+    %if %{with_account_add}
 # 'libvirt' group is just to allow password-less polkit access to libvirt
 # daemons. The uid number is irrelevant, so we use dynamic allocation.
 getent group libvirt >/dev/null || groupadd -r libvirt
 exit 0
+    %endif
 
 %posttrans daemon-common
 %libvirt_sysconfig_posttrans libvirt-guests
@@ -1891,6 +1942,7 @@ exit 0
 %libvirt_sysconfig_pre virtqemud
 %libvirt_systemd_unix_pre virtqemud
 
+        %if %{with_account_add}
 # We want soft static allocation of well-known ids, as disk images
 # are commonly shared across NFS mounts by id rather than name.
 # See https://docs.fedoraproject.org/en-US/packaging-guidelines/UsersAndGroups/
@@ -1906,6 +1958,7 @@ if ! getent passwd 'qemu' >/dev/null; then
   fi
 fi
 exit 0
+        %endif
 
 %posttrans daemon-driver-qemu
 %libvirt_sysconfig_posttrans virtqemud
@@ -1952,6 +2005,19 @@ exit 0
 
 %preun daemon-driver-libxl
 %libvirt_systemd_unix_preun virtxend
+    %endif
+
+    %if %{with_ch}
+%pre daemon-driver-ch
+%libvirt_sysconfig_pre virtchd
+%libvirt_systemd_unix_pre virtchd
+
+%posttrans daemon-driver-ch
+%libvirt_sysconfig_posttrans virtchd
+%libvirt_systemd_unix_posttrans virtchd
+
+%preun daemon-driver-ch
+%libvirt_systemd_unix_preun virtchd
     %endif
 
 %pre daemon-config-network
@@ -2019,8 +2085,10 @@ done
 
     %if %{with_lxc}
 %pre login-shell
+        %if %{with_account_add}
 getent group virtlogin >/dev/null || groupadd -r virtlogin
 exit 0
+        %endif
     %endif
 %endif
 
@@ -2064,9 +2132,11 @@ exit 0
 %dir %attr(0755, root, root) %{_libdir}/libvirt/connection-driver/
 %dir %attr(0755, root, root) %{_libdir}/libvirt/storage-backend/
 %dir %attr(0755, root, root) %{_libdir}/libvirt/storage-file/
+%dir %attr(0755, root, root) %{_libdir}/libvirt/lock-driver/
 %{_datadir}/polkit-1/actions/org.libvirt.unix.policy
 %{_datadir}/polkit-1/actions/org.libvirt.api.policy
 %{_datadir}/polkit-1/rules.d/50-libvirt.rules
+%{_sysusersdir}/libvirt.conf
 %dir %attr(0700, root, root) %{_localstatedir}/log/libvirt/
 %attr(0755, root, root) %{_libexecdir}/libvirt_iohelper
 %attr(0755, root, root) %{_bindir}/virt-ssh-helper
@@ -2094,7 +2164,6 @@ exit 0
 %{_mandir}/man8/virtlockd.8*
 
 %files daemon-plugin-lockd
-%dir %attr(0755, root, root) %{_libdir}/libvirt/lock-driver/
 %attr(0755, root, root) %{_libdir}/libvirt/lock-driver/lockd.so
 
 %files daemon-log
@@ -2233,7 +2302,6 @@ exit 0
 %ghost %dir %{_rundir}/libvirt/storage/
 %{_libdir}/libvirt/connection-driver/libvirt_driver_storage.so
 %{_libdir}/libvirt/storage-backend/libvirt_storage_backend_fs.so
-%{_libdir}/libvirt/storage-file/libvirt_storage_file_fs.so
 %{_mandir}/man8/virtstoraged.8*
 
 %files daemon-driver-storage-disk
@@ -2409,7 +2477,6 @@ exit 0
         %if %{with_libxl}
 %config(noreplace) %{_sysconfdir}/libvirt/libxl-sanlock.conf
         %endif
-%dir %attr(0755, root, root) %{_libdir}/libvirt/lock-driver/
 %attr(0755, root, root) %{_libdir}/libvirt/lock-driver/sanlock.so
 %{_datadir}/augeas/lenses/libvirt_sanlock.aug
 %{_datadir}/augeas/lenses/tests/test_libvirt_sanlock.aug
@@ -2417,6 +2484,19 @@ exit 0
 %{_sbindir}/virt-sanlock-cleanup
 %{_mandir}/man8/virt-sanlock-cleanup.8*
 %attr(0755, root, root) %{_libexecdir}/libvirt_sanlock_helper
+    %endif
+
+    %if %{with_ch}
+%files daemon-driver-ch
+%attr(0755, root, root) %{_sbindir}/virtchd
+%config(noreplace) %{_sysconfdir}/libvirt/virtchd.conf
+%{_datadir}/augeas/lenses/virtchd.aug
+%{_datadir}/augeas/lenses/tests/test_virtchd.aug
+%{_unitdir}/virtchd-admin.socket
+%{_unitdir}/virtchd-ro.socket
+%{_unitdir}/virtchd.service
+%{_unitdir}/virtchd.socket
+%{_libdir}/libvirt/connection-driver/libvirt_driver_ch.so
     %endif
 
 %files client
@@ -2479,6 +2559,7 @@ exit 0
 %attr(4750, root, virtlogin) %{_bindir}/virt-login-shell
 %{_libexecdir}/virt-login-shell-helper
 %config(noreplace) %{_sysconfdir}/libvirt/virt-login-shell.conf
+%{_sysusersdir}/libvirt-login-shell.conf
 %{_mandir}/man1/virt-login-shell.1*
     %endif
 
@@ -2637,6 +2718,42 @@ exit 0
 
 
 %changelog
+* Fri 11 Jul 2025 Gabriele Mambrini <gmambro@centosproject.org> - 11.4.0-1.1
+- Merge latest changes from Fedora
+
+* Fri Jun 20 2025 Cole Robinson <crobinso@redhat.com> - 11.4.0-2
+- Fix dumpxml failures after migration (bz 2369243)
+
+* Mon Jun 02 2025 Cole Robinson <crobinso@redhat.com> - 11.4.0-1
+- Update to version 11.4.0
+
+* Thu May 08 2025 Adam Williamson <awilliam@redhat.com> - 11.3.0-3
+- Properly obsolete libvirt-daemon-driver-storage-zfs
+
+* Thu May 08 2025 Cole Robinson <crobinso@redhat.com> - 11.3.0-2
+- zfs-fuse is gone from rawhide, drop libvirt-daemon-storage-zfs
+
+* Wed May 07 2025 Cole Robinson <crobinso@redhat.com> - 11.3.0-1
+- Update to version 11.3.0
+
+* Tue Apr 29 2025 Daniel P. Berrangé <berrange@redhat.com> - 11.2.0-2
+- Fix install of Ampere 1 ARM CPU model (rhbz #2361196)
+- Fix location of mount, umount (rhbz #2359196)
+- Fix location of numad (rhbz #2359736)
+- Fix tests on rebuild with latest GCC 15
+
+* Tue Apr 01 2025 Cole Robinson <crobinso@redhat.com> - 11.2.0-1
+- Update to version 11.2.0
+
+* Mon Mar 03 2025 Cole Robinson <crobinso@redhat.com> - 11.1.0-1
+- Update to version 11.1.0
+
+* Fri Jan 17 2025 Cole Robinson <crobinso@redhat.com> - 11.0.0-1
+- Update to version 11.0.0
+
+* Fri Jan 17 2025 Fedora Release Engineering <releng@fedoraproject.org> - 10.10.0-2
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_42_Mass_Rebuild
+
 * Fri Dec 20 2024 Roberto Campesato <render@metalabs.org> - 10.10.0-1.1
 - Merge latest changes from Fedora
 
