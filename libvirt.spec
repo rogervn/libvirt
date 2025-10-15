@@ -285,14 +285,14 @@
     %{nil}
 
 # To prevent rpmdev-bumpspec breakage
-%global baserelease 1
+%global baserelease 2
 
 # Hyperscale release
 %global hsrel .1
 
 Summary: Library providing a simple virtualization API
 Name: libvirt
-Version: 11.4.0
+Version: 11.8.0
 Release: %{baserelease}%{?hsrel}%{?dist}
 License: GPL-2.0-or-later AND LGPL-2.1-only AND LGPL-2.1-or-later AND OFL-1.1
 URL: https://libvirt.org/
@@ -302,8 +302,15 @@ URL: https://libvirt.org/
 %endif
 Source: https://download.libvirt.org/%{?mainturl}libvirt-%{version}.tar.xz
 
-# Fix dumpxml failures after migration (bz 2369243)
-Patch: 0001-qemu-Be-more-forgiving-when-acquiring-QUERY-job-when.patch
+Patch: 0001-wireshark-Drop-needless-declaration-of-proto_registe.patch
+Patch: 0002-wireshark-Switch-header-files-to-pragma-once.patch
+Patch: 0003-wireshark-Move-WIRESHARK_VERSION-macro-definition.patch
+Patch: 0004-wireshark-Fix-int-type-of-some-virNetMessageHeader-m.patch
+Patch: 0005-wireshark-Don-t-special-case-retval-of-get_program_d.patch
+Patch: 0006-wireshark-Introduce-and-use-vir_val_to_str.patch
+Patch: 0007-wireshark-Don-t-leak-column-strings.patch
+Patch: 0008-wireshark-Adapt-to-wireshark-4.6.0.patch
+
 
 Requires: libvirt-daemon = %{version}-%{release}
 Requires: libvirt-daemon-config-network = %{version}-%{release}
@@ -378,12 +385,7 @@ BuildRequires: sanlock-devel >= 2.4
 BuildRequires: libpcap-devel >= 1.5.0
 BuildRequires: libnl3-devel
 BuildRequires: libselinux-devel
-# For modprobe
-BuildRequires: kmod
 BuildRequires: cyrus-sasl-devel
-BuildRequires: polkit >= 0.112
-# For mount/umount in FS driver
-BuildRequires: util-linux
     %if %{with_qemu}
 # For managing ACLs
 BuildRequires: libacl-devel
@@ -394,10 +396,6 @@ BuildRequires: /usr/bin/qemu-img
     %if %{with_nbdkit}
 BuildRequires: libnbd-devel
     %endif
-# For LVM drivers
-BuildRequires: lvm2
-# For pool type=iscsi
-BuildRequires: iscsi-initiator-utils
     %if %{with_storage_iscsi_direct}
 # For pool type=iscsi-direct
 BuildRequires: libiscsi-devel
@@ -437,11 +435,6 @@ BuildRequires: libwsman-devel >= 2.6.3
 BuildRequires: audit-libs-devel
 BuildRequires: systemtap-sdt-devel
 BuildRequires: /usr/bin/dtrace
-# For mount/umount in FS driver
-BuildRequires: util-linux
-    %if %{with_numad}
-BuildRequires: numad
-    %endif
     %if %{with_wireshark}
 BuildRequires: wireshark-devel
     %endif
@@ -522,6 +515,8 @@ Requires: libvirt-libs = %{version}-%{release}
 # Recommends here will install libvirt-client by default (if available), but
 # RPM won't complain if the package is unavailable, masked, or removed later.
 Recommends: libvirt-client = %{version}-%{release}
+# For modprobe and rmmod
+Requires: kmod
 # for /sbin/ip
 Requires: iproute
 # for /sbin/tc
@@ -681,7 +676,7 @@ Summary: Storage driver plugin including base backends for the libvirtd daemon
 Requires: libvirt-daemon-common = %{version}-%{release}
 Requires: libvirt-libs = %{version}-%{release}
 Recommends: nfs-utils
-# For mkfs
+# For mkfs and mount/umount
 Requires: util-linux
 # For storage wiping with different algorithms
 Requires: scrub
@@ -2497,6 +2492,9 @@ exit 0
 %{_unitdir}/virtchd.service
 %{_unitdir}/virtchd.socket
 %{_libdir}/libvirt/connection-driver/libvirt_driver_ch.so
+%config(noreplace) %{_sysconfdir}/libvirt/ch.conf
+%{_datadir}/augeas/lenses/libvirtd_ch.aug
+%{_datadir}/augeas/lenses/tests/test_libvirtd_ch.aug
     %endif
 
 %files client
@@ -2718,8 +2716,37 @@ exit 0
 
 
 %changelog
+<<<<<<< HEAD
 * Fri 11 Jul 2025 Gabriele Mambrini <gmambro@centosproject.org> - 11.4.0-1.1
 - Merge latest changes from Fedora
+=======
+* Tue Oct 14 2025 Cole Robinson <crobinso@redhat.com> - 11.8.0-2
+- Fix build with latest wireshark
+
+* Wed Oct 01 2025 Cole Robinson <crobinso@redhat.com> - 11.8.0-1
+- Update to version 11.8.0
+
+* Thu Sep 04 2025 Adam Williamson <awilliam@redhat.com> - 11.7.0-3
+- Rebuild on a side tag
+
+* Thu Sep 04 2025 Adam Williamson <awilliam@redhat.com> - 11.7.0-2
+- Rebuild for libiscsi.so.11
+
+* Tue Sep 02 2025 Cole Robinson <crobinso@redhat.com> - 11.7.0-1
+- Update to version 11.7.0
+
+* Tue Aug 05 2025 Cole Robinson <crobinso@redhat.com> - 11.6.0-1
+- Update to version 11.6.0
+
+* Thu Jul 24 2025 Fedora Release Engineering <releng@fedoraproject.org> - 11.5.0-3
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_43_Mass_Rebuild
+
+* Wed Jul 16 2025 Richard W.M. Jones <rjones@redhat.com> - 11.5.0-2
+- Rebuild for updated Xen
+
+* Wed Jul 09 2025 Cole Robinson <crobinso@redhat.com> - 11.5.0-1
+- Update to version 11.5.0
+>>>>>>> upstream/rawhide
 
 * Fri Jun 20 2025 Cole Robinson <crobinso@redhat.com> - 11.4.0-2
 - Fix dumpxml failures after migration (bz 2369243)
