@@ -1,0 +1,58 @@
+From: Rogerio Vinhal Nunes <rogervn@meta.com>
+diff --git a/src/qemu/qemu_migration.c b/src/qemu/qemu_migration.c
+--- a/src/qemu/qemu_migration.c
++++ b/src/qemu/qemu_migration.c
+@@ -5191,6 +5191,31 @@
+             goto error;
+     }
+ 
++    /* A hook after the migration finished for custom operation before
++       resuming switching over the domain to destination. Enables custom
++       code to run at pre-switchover state */
++    if (virHookPresent(VIR_HOOK_DRIVER_QEMU)) {
++        g_autofree char *xml = NULL;
++        int hookret;
++
++        if (!(xml = qemuDomainDefFormatXML(driver, NULL, vm->def, 0)))
++            goto error;
++
++        VIR_DEBUG("preswitchover hook for domain %s", vm->def->name);
++
++        hookret = virHookCall(VIR_HOOK_DRIVER_QEMU, vm->def->name,
++                              VIR_HOOK_QEMU_OP_PRESWITCHOVER,
++                              VIR_HOOK_SUBOP_NONE,
++                              NULL, xml, NULL);
++
++        if (hookret < 0) {
++            virReportError(VIR_ERR_HOOK_SCRIPT_FAILED,
++                          "%s",
++                          "preswitchover hook failed");
++            goto error;
++        }
++    }
++
+     if (mig->nbd &&
+         qemuMigrationSrcNBDCopyCancel(vm, false,
+                                       VIR_ASYNC_JOB_MIGRATION_OUT,
+diff --git a/src/util/virhook.c b/src/util/virhook.c
+--- a/src/util/virhook.c
++++ b/src/util/virhook.c
+@@ -80,6 +80,7 @@
+               "prepare",
+               "release",
+               "migrate",
++              "preswitchover",
+               "started",
+               "reconnect",
+               "attach",
+diff --git a/src/util/virhook.h b/src/util/virhook.h
+--- a/src/util/virhook.h
++++ b/src/util/virhook.h
+@@ -56,6 +56,7 @@
+     VIR_HOOK_QEMU_OP_PREPARE,          /* domain startup initiated */
+     VIR_HOOK_QEMU_OP_RELEASE,          /* domain destruction is over */
+     VIR_HOOK_QEMU_OP_MIGRATE,          /* domain is being migrated */
++    VIR_HOOK_QEMU_OP_PRESWITCHOVER,    /* domain is about to switchover to destination */
+     VIR_HOOK_QEMU_OP_STARTED,          /* domain has started */
+     VIR_HOOK_QEMU_OP_RECONNECT,        /* domain is being reconnected by libvirt */
+     VIR_HOOK_QEMU_OP_ATTACH,           /* domain is being attached to be libvirt */

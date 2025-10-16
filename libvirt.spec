@@ -285,7 +285,7 @@
     %{nil}
 
 # To prevent rpmdev-bumpspec breakage
-%global baserelease 2
+%global baserelease 3
 
 # Hyperscale release
 %global hsrel .1
@@ -310,6 +310,7 @@ Patch: 0005-wireshark-Don-t-special-case-retval-of-get_program_d.patch
 Patch: 0006-wireshark-Introduce-and-use-vir_val_to_str.patch
 Patch: 0007-wireshark-Don-t-leak-column-strings.patch
 Patch: 0008-wireshark-Adapt-to-wireshark-4.6.0.patch
+Patch: 0009-qemu-Add-custom-hook-at-pre-switchover-state.patch
 
 
 Requires: libvirt-daemon = %{version}-%{release}
